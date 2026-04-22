@@ -1,0 +1,622 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>LooksCAM-Config — Web Validation</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 16px; }
+    .row { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-start; }
+    video { width: 720px; max-width: 100%; background: #000; border-radius: 10px; }
+    .card { border: 1px solid #ddd; border-radius: 10px; padding: 12px; min-width: 340px; }
+    label { display: inline-block; width: 120px; }
+    input, select, button { margin: 4px 0; }
+    button { padding: 6px 10px; }
+    pre { background: #f7f7f7; padding: 10px; border-radius: 10px; overflow: auto; }
+    .warn { color: #b45309; }
+    .ok { color: #15803d; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #ddd; padding: 6px; font-size: 13px; }
+    th { background: #f3f4f6; }
+    .grid { display: grid; grid-template-columns: 140px 1fr; gap: 8px; align-items: center; }
+    .small { font-size: 12px; color: #555; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+  </style>
+</head>
+<body>
+  <h2>LooksCAM-Config — Web Validation MVP (UVC)</h2>
+  <p class="small">
+    목표: Chrome(Web)에서 UVC 카메라를 직접 열어 <b>실제 적용 해상도/FPS</b> + <b>Freeze 감지</b> + <b>자동 테스트/CSV</b> + <b>가능한 UVC 컨트롤</b>을 확인합니다.
+  </p>
+
+  <div class="row">
+    <div>
+      <video id="v" autoplay playsinline muted></video>
+      <div style="margin-top:8px;">
+        <button id="btnSnap">Snapshot</button>
+        <span class="warn">Tip:</span> 처음 실행 시 Chrome에서 Camera 권한을 Allow 하세요.
+      </div>
+      <canvas id="c" style="display:none;"></canvas>
+      <div id="snapOut"></div>
+    </div>
+
+    <div class="card">
+      <h3>Control</h3>
+
+      <div class="grid">
+        <div>Camera</div>
+        <select id="selCam"></select>
+
+        <div>Width</div>
+        <input id="inW" type="number" value="1920" min="160" step="16">
+
+        <div>Height</div>
+        <input id="inH" type="number" value="1080" min="120" step="16">
+
+        <div>FPS</div>
+        <input id="inFps" type="number" value="30" min="1" step="1">
+      </div>
+
+      <div style="margin-top:10px;">
+        <button id="btnStart">Start</button>
+        <button id="btnApply">Apply</button>
+        <button id="btnStop">Stop</button>
+      </div>
+
+      <hr style="margin:12px 0;">
+
+      <h4>Matrix Test</h4>
+      <div class="grid">
+        <div>Per case (sec)</div>
+        <input id="inDur" type="number" value="10" min="3" step="1">
+
+        <div>Warm-up (sec)</div>
+        <input id="inWarm" type="number" value="2" min="0" step="1">
+      </div>
+
+      <div style="margin-top:10px;">
+        <button id="btnRunMatrix">Run Matrix</button>
+        <button id="btnDownloadCsv" disabled>Download CSV</button>
+        <button id="btnClearLog">Clear Log</button>
+      </div>
+
+      <p class="small">
+        권장: 테스트 중에는 <b>다른 Chrome 창/탭에서 카메라를 열지 마세요</b>.
+      </p>
+    </div>
+
+    <div class="card">
+      <h3>Live Stats</h3>
+      <pre id="stats">Not started.</pre>
+      <div class="small">
+        <span class="ok">기준:</span> Requested = Actual이면 협상 성공. <br/>
+        Measured FPS는 렌더링/부하 영향을 받는 참고값.
+      </div>
+    </div>
+  </div>
+
+  <div class="row" style="margin-top:16px;">
+    <div class="card" style="flex: 1; min-width: 720px;">
+      <h3>Matrix Results</h3>
+      <table id="tbl">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Requested</th>
+            <th>Actual</th>
+            <th>Measured FPS (avg/min/max)</th>
+            <th>Freeze count</th>
+            <th>Status</th>
+            <th>Notes</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <p class="small mono" id="csvHint"></p>
+    </div>
+
+    <div class="card" style="flex: 1; min-width: 340px;">
+      <h3>UVC Controls (if supported)</h3>
+      <p class="small">
+        카메라/드라이버가 노출하는 항목만 자동으로 표시됩니다. (없으면 빈칸이 정상)
+      </p>
+      <div id="ctrlArea"></div>
+      <div style="margin-top:10px;">
+        <button id="btnRefreshCaps" disabled>Refresh Capabilities</button>
+      </div>
+      <pre class="mono" id="capsDump" style="margin-top:10px; max-height: 240px;"></pre>
+    </div>
+  </div>
+
+<script>
+let stream = null;
+let track = null;
+
+// FPS + freeze measurement
+let lastT = 0;
+let frameCount = 0;
+let fpsNow = 0;
+let freezeCount = 0;
+let lastFrameTs = 0;
+
+// matrix log
+const results = []; // each row object
+let running = false;
+
+const v = document.getElementById('v');
+const statsEl = document.getElementById('stats');
+const selCam = document.getElementById('selCam');
+const tblBody = document.querySelector('#tbl tbody');
+const ctrlArea = document.getElementById('ctrlArea');
+const capsDump = document.getElementById('capsDump');
+const csvHint = document.getElementById('csvHint');
+
+function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
+
+async function refreshDeviceList() {
+  const devices = await navigator.mediaDevices.enumerateDevices();
+  const cams = devices.filter(d => d.kind === 'videoinput');
+  selCam.innerHTML = '';
+  cams.forEach((cam, idx) => {
+    const opt = document.createElement('option');
+    opt.value = cam.deviceId;
+    opt.textContent = cam.label || `Camera ${idx+1}`;
+    selCam.appendChild(opt);
+  });
+}
+
+function stopStream() {
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = null;
+  track = null;
+  v.srcObject = null;
+  statsEl.textContent = 'Stopped.';
+  ctrlArea.innerHTML = '';
+  capsDump.textContent = '';
+  document.getElementById('btnRefreshCaps').disabled = true;
+}
+
+function resetCounters() {
+  lastT = 0;
+  frameCount = 0;
+  fpsNow = 0;
+  freezeCount = 0;
+  lastFrameTs = 0;
+}
+
+async function startStreamWith(w, h, fps, deviceId) {
+  stopStream();
+
+  const constraints = {
+    video: {
+      deviceId: deviceId ? { exact: deviceId } : undefined,
+      width: { ideal: w },
+      height: { ideal: h },
+      frameRate: { ideal: fps }
+    },
+    audio: false
+  };
+
+  stream = await navigator.mediaDevices.getUserMedia(constraints);
+  v.srcObject = stream;
+  track = stream.getVideoTracks()[0];
+
+  resetCounters();
+
+  // loops
+  if ('requestVideoFrameCallback' in HTMLVideoElement.prototype) {
+    v.requestVideoFrameCallback(onVideoFrame);
+  }
+  requestAnimationFrame(statsLoop);
+
+  // after permission, update names and caps
+  await refreshDeviceList();
+  await refreshCapabilitiesUI();
+}
+
+async function applyConstraints(w, h, fps) {
+  if (!track) return;
+  await track.applyConstraints({
+    width: { ideal: w },
+    height: { ideal: h },
+    frameRate: { ideal: fps }
+  });
+}
+
+function onVideoFrame(now) {
+  // FPS
+  frameCount++;
+  if (lastT === 0) lastT = now;
+
+  const dt = now - lastT;
+  if (dt >= 1000) {
+    fpsNow = frameCount * 1000 / dt;
+    frameCount = 0;
+    lastT = now;
+  }
+
+  // Freeze heuristic: if gap between frames is too long, count as freeze
+  // threshold: > 250ms (tunable)
+  if (lastFrameTs !== 0) {
+    const gap = now - lastFrameTs;
+    if (gap > 250) freezeCount++;
+  }
+  lastFrameTs = now;
+
+  v.requestVideoFrameCallback(onVideoFrame);
+}
+
+function statsLoop() {
+  if (!track) return;
+
+  const settings = track.getSettings();
+  const lines = [];
+  lines.push(`Requested (ideal): ${document.getElementById('inW').value}x${document.getElementById('inH').value} @ ${document.getElementById('inFps').value} fps`);
+  lines.push(`Actual settings:   ${settings.width}x${settings.height} @ ${(settings.frameRate ?? 'N/A')} fps`);
+  lines.push(`Measured FPS:      ${fpsNow.toFixed(1)}`);
+  lines.push(`Freeze count:      ${freezeCount}`);
+  lines.push(`Video element:     ${v.videoWidth}x${v.videoHeight}`);
+  statsEl.textContent = lines.join('\n');
+
+  requestAnimationFrame(statsLoop);
+}
+
+/* ---------------- UVC Controls (auto) ---------------- */
+
+function makeSliderRow(name, min, max, step, value, onChange) {
+  const wrap = document.createElement('div');
+  wrap.style.margin = '8px 0';
+
+  const title = document.createElement('div');
+  title.className = 'small';
+  title.textContent = `${name}: `;
+  const valSpan = document.createElement('span');
+  valSpan.className = 'mono';
+  valSpan.textContent = String(value);
+  title.appendChild(valSpan);
+
+  const input = document.createElement('input');
+  input.type = 'range';
+  input.min = min;
+  input.max = max;
+  input.step = step;
+  input.value = value;
+  input.style.width = '100%';
+
+  input.addEventListener('input', async () => {
+    valSpan.textContent = input.value;
+    await onChange(Number(input.value));
+  });
+
+  wrap.appendChild(title);
+  wrap.appendChild(input);
+  return wrap;
+}
+
+function makeSelectRow(name, options, value, onChange) {
+  const wrap = document.createElement('div');
+  wrap.style.margin = '8px 0';
+
+  const title = document.createElement('div');
+  title.className = 'small';
+  title.textContent = name;
+
+  const sel = document.createElement('select');
+  sel.style.width = '100%';
+  options.forEach(optVal => {
+    const o = document.createElement('option');
+    o.value = optVal;
+    o.textContent = optVal;
+    if (optVal === value) o.selected = true;
+    sel.appendChild(o);
+  });
+
+  sel.addEventListener('change', async () => {
+    await onChange(sel.value);
+  });
+
+  wrap.appendChild(title);
+  wrap.appendChild(sel);
+  return wrap;
+}
+
+async function refreshCapabilitiesUI() {
+  if (!track) return;
+
+  ctrlArea.innerHTML = '';
+  const caps = track.getCapabilities ? track.getCapabilities() : {};
+  const settings = track.getSettings ? track.getSettings() : {};
+
+  // dump caps for debugging
+  capsDump.textContent = JSON.stringify({ capabilities: caps, settings }, null, 2);
+  document.getElementById('btnRefreshCaps').disabled = false;
+
+  // Numeric sliders commonly supported
+  const numericKeys = [
+    'brightness', 'contrast', 'saturation', 'sharpness',
+    'zoom', 'focusDistance', 'exposureTime', 'colorTemperature'
+  ];
+
+  for (const key of numericKeys) {
+    const cap = caps[key];
+    if (cap && typeof cap.min === 'number' && typeof cap.max === 'number') {
+      const cur = (settings[key] ?? cap.min);
+      const step = (cap.step ?? 1);
+      ctrlArea.appendChild(
+        makeSliderRow(key, cap.min, cap.max, step, cur, async (val) => {
+          try {
+            await track.applyConstraints({ advanced: [{ [key]: val }] });
+          } catch (e) {
+            console.warn('applyConstraints failed for', key, e);
+          }
+        })
+      );
+    }
+  }
+
+  // Mode selects if present
+  const modeKeys = ['exposureMode', 'focusMode', 'whiteBalanceMode'];
+  for (const key of modeKeys) {
+    const cap = caps[key];
+    if (Array.isArray(cap) && cap.length > 0) {
+      const cur = (settings[key] ?? cap[0]);
+      ctrlArea.appendChild(
+        makeSelectRow(key, cap, cur, async (val) => {
+          try {
+            await track.applyConstraints({ advanced: [{ [key]: val }] });
+          } catch (e) {
+            console.warn('applyConstraints failed for', key, e);
+          }
+        })
+      );
+    }
+  }
+
+  if (ctrlArea.children.length === 0) {
+    const p = document.createElement('p');
+    p.className = 'small';
+    p.textContent = 'No UVC controls exposed by this device/driver (this is normal).';
+    ctrlArea.appendChild(p);
+  }
+}
+
+/* ---------------- Matrix Test + CSV ---------------- */
+
+function addRowToTable(r) {
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td>${r.idx}</td>
+    <td class="mono">${r.req}</td>
+    <td class="mono">${r.act}</td>
+    <td class="mono">${r.fpsAvg.toFixed(1)} / ${r.fpsMin.toFixed(1)} / ${r.fpsMax.toFixed(1)}</td>
+    <td class="mono">${r.freeze}</td>
+    <td>${r.status}</td>
+    <td class="small">${r.notes || ''}</td>
+  `;
+  tblBody.appendChild(tr);
+}
+
+function clearTable() {
+  tblBody.innerHTML = '';
+  results.length = 0;
+  document.getElementById('btnDownloadCsv').disabled = true;
+  csvHint.textContent = '';
+}
+
+function toCsv() {
+  const header = [
+    'idx','requested','actual','fps_avg','fps_min','fps_max','freeze_count','status','notes'
+  ];
+  const lines = [header.join(',')];
+  for (const r of results) {
+    const row = [
+      r.idx,
+      `"${r.req}"`,
+      `"${r.act}"`,
+      r.fpsAvg.toFixed(2),
+      r.fpsMin.toFixed(2),
+      r.fpsMax.toFixed(2),
+      r.freeze,
+      r.status,
+      `"${(r.notes || '').replaceAll('"','""')}"`
+    ];
+    lines.push(row.join(','));
+  }
+  return lines.join('\n');
+}
+
+function downloadText(filename, text) {
+  const blob = new Blob([text], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function runOneCase(idx, w, h, fps, durSec, warmSec) {
+  const deviceId = selCam.value || undefined;
+
+  // Start fresh per case for stability
+  await startStreamWith(w, h, fps, deviceId);
+
+  // warm-up
+  if (warmSec > 0) await sleep(warmSec * 1000);
+
+  // gather stats over duration
+  let samples = [];
+  let start = performance.now();
+  let lastFreezeStart = freezeCount;
+
+  while ((performance.now() - start) < durSec * 1000) {
+    samples.push(fpsNow);
+    await sleep(250);
+  }
+
+  const s = track.getSettings();
+  const actual = `${s.width}x${s.height} @ ${(s.frameRate ?? 'N/A')}fps`;
+  const requested = `${w}x${h} @ ${fps}fps`;
+
+  const validSamples = samples.filter(x => Number.isFinite(x));
+  const fpsAvg = validSamples.length ? (validSamples.reduce((a,b)=>a+b,0)/validSamples.length) : 0;
+  const fpsMin = validSamples.length ? Math.min(...validSamples) : 0;
+  const fpsMax = validSamples.length ? Math.max(...validSamples) : 0;
+
+  const freezeDelta = Math.max(0, freezeCount - lastFreezeStart);
+
+  // status rules (simple + practical)
+  let status = 'PASS';
+  let notes = '';
+
+  // if actual differs too much, mark WARN
+  if (!s.width || !s.height) {
+    status = 'FAIL';
+    notes = 'No settings reported';
+  } else {
+    const reqMatch = (s.width === w && s.height === h);
+    if (!reqMatch) {
+      status = 'WARN';
+      notes += 'Actual resolution differs. ';
+    }
+    if (freezeDelta > 0) {
+      status = (status === 'PASS') ? 'WARN' : status;
+      notes += `Freeze detected(${freezeDelta}). `;
+    }
+    // If avg fps far below requested (heuristic)
+    if (fpsAvg > 0 && fpsAvg < Math.max(5, fps * 0.6)) {
+      status = (status === 'PASS') ? 'WARN' : status;
+      notes += 'Measured FPS low. ';
+    }
+  }
+
+  const row = {
+    idx,
+    req: requested,
+    act: actual,
+    fpsAvg, fpsMin, fpsMax,
+    freeze: freezeDelta,
+    status,
+    notes: notes.trim()
+  };
+
+  results.push(row);
+  addRowToTable(row);
+}
+
+async function runMatrix() {
+  if (running) return;
+  running = true;
+
+  document.getElementById('btnRunMatrix').disabled = true;
+  document.getElementById('btnDownloadCsv').disabled = true;
+
+  const durSec = Number(document.getElementById('inDur').value);
+  const warmSec = Number(document.getElementById('inWarm').value);
+
+  // A practical default matrix for LT (you can edit later)
+  const matrix = [
+    { w: 1280, h: 720,  fps: 30 },
+    { w: 1920, h: 1080, fps: 30 },
+    { w: 1920, h: 1080, fps: 25 },
+    { w: 1920, h: 1080, fps: 15 },
+    { w: 3840, h: 2160, fps: 30 },
+    { w: 3840, h: 2160, fps: 15 },
+  ];
+
+  // Ensure we have permission / device list
+  await refreshDeviceList();
+
+  // Clear previous
+  clearTable();
+
+  // Run
+  let idx = 1;
+  try {
+    for (const t of matrix) {
+      // reflect UI requested values
+      document.getElementById('inW').value = t.w;
+      document.getElementById('inH').value = t.h;
+      document.getElementById('inFps').value = t.fps;
+
+      await runOneCase(idx++, t.w, t.h, t.fps, durSec, warmSec);
+    }
+  } catch (e) {
+    console.error(e);
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td colspan="7" class="warn">Matrix aborted: ${String(e.message || e)}</td>`;
+    tblBody.appendChild(tr);
+  } finally {
+    running = false;
+    document.getElementById('btnRunMatrix').disabled = false;
+    document.getElementById('btnDownloadCsv').disabled = (results.length === 0);
+    csvHint.textContent = results.length ? 'CSV 다운로드 가능 (Download CSV 버튼)' : '';
+  }
+}
+
+/* ---------------- UI hooks ---------------- */
+
+document.getElementById('btnStart').addEventListener('click', async () => {
+  await refreshDeviceList();
+  const w = Number(document.getElementById('inW').value);
+  const h = Number(document.getElementById('inH').value);
+  const fps = Number(document.getElementById('inFps').value);
+  const deviceId = selCam.value || undefined;
+  await startStreamWith(w, h, fps, deviceId);
+});
+
+document.getElementById('btnApply').addEventListener('click', async () => {
+  const w = Number(document.getElementById('inW').value);
+  const h = Number(document.getElementById('inH').value);
+  const fps = Number(document.getElementById('inFps').value);
+  await applyConstraints(w, h, fps);
+});
+
+document.getElementById('btnStop').addEventListener('click', () => {
+  stopStream();
+});
+
+document.getElementById('btnSnap').addEventListener('click', () => {
+  if (!v.videoWidth || !v.videoHeight) return;
+  const c = document.getElementById('c');
+  c.width = v.videoWidth;
+  c.height = v.videoHeight;
+  c.getContext('2d').drawImage(v, 0, 0);
+  const img = new Image();
+  img.src = c.toDataURL('image/png');
+  img.style.maxWidth = '360px';
+  img.style.border = '1px solid #ddd';
+  img.style.borderRadius = '8px';
+  img.style.marginTop = '8px';
+  const out = document.getElementById('snapOut');
+  out.innerHTML = '';
+  out.appendChild(img);
+});
+
+document.getElementById('btnRunMatrix').addEventListener('click', async () => {
+  await runMatrix();
+});
+
+document.getElementById('btnDownloadCsv').addEventListener('click', () => {
+  const csv = toCsv();
+  const ts = new Date().toISOString().replaceAll(':','-').split('.')[0];
+  downloadText(`LooksCAM_Config_Matrix_${ts}.csv`, csv);
+});
+
+document.getElementById('btnClearLog').addEventListener('click', () => {
+  clearTable();
+});
+
+document.getElementById('btnRefreshCaps').addEventListener('click', async () => {
+  await refreshCapabilitiesUI();
+});
+
+// Init
+(async function init() {
+  try { await refreshDeviceList(); } catch(e) {}
+})();
+</script>
+</body>
+</html>

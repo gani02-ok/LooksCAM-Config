@@ -1,0 +1,955 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>LooksCAM-Config — Web Validation MVP (UVC)</title>
+  <style>
+    :root{
+      --bd:#ddd; --bg:#fff; --muted:#666; --soft:#f7f7f7; --soft2:#f3f4f6;
+      --ok:#15803d; --warn:#b45309; --danger:#b91c1c;
+    }
+    body{ font-family: Arial, sans-serif; margin:16px; background:var(--bg); color:#111; }
+    h2{ margin:0 0 6px 0; }
+    .small{ font-size:12px; color:var(--muted); line-height:1.35; }
+    .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace; }
+    .row{ display:flex; gap:16px; flex-wrap:wrap; align-items:flex-start; }
+    .card{ border:1px solid var(--bd); border-radius:12px; padding:12px; background:#fff; }
+    .grid{ display:grid; grid-template-columns:140px 1fr; gap:8px; align-items:center; }
+    input, select, button{ margin:4px 0; }
+    input, select{ padding:6px; border:1px solid var(--bd); border-radius:8px; }
+    button{ padding:7px 10px; border:1px solid var(--bd); background:#fff; border-radius:10px; cursor:pointer; }
+    button:hover{ background:var(--soft2); }
+    button:disabled{ opacity:.5; cursor:not-allowed; }
+    pre{ background:var(--soft); padding:10px; border-radius:12px; overflow:auto; }
+    table{ border-collapse:collapse; width:100%; }
+    th, td{ border:1px solid var(--bd); padding:6px; font-size:13px; vertical-align:top; }
+    th{ background:var(--soft2); }
+    .ok{ color:var(--ok); }
+    .warn{ color:var(--warn); }
+    .danger{ color:var(--danger); }
+
+    /* Tabs */
+    .tabs{ display:flex; gap:8px; flex-wrap:wrap; margin:12px 0 10px 0; }
+    .tabbtn{ padding:8px 10px; border-radius:999px; border:1px solid var(--bd); background:#fff; }
+    .tabbtn.active{ background:#111; color:#fff; border-color:#111; }
+    .tabpanel{ display:none; }
+    .tabpanel.active{ display:block; }
+
+    /* Video */
+    .videoWrap{ position:relative; }
+    video{ width: 720px; max-width: 100%; background:#000; border-radius:12px; }
+    .videoTools{ margin-top:8px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    .hint{ color:var(--warn); font-weight:bold; }
+    .pill{ display:inline-block; padding:2px 8px; border:1px solid var(--bd); border-radius:999px; font-size:12px; background:#fff; }
+
+    /* Fullscreen / Video-only overlay */
+    .overlay{ position:fixed; inset:0; background:#000; display:none; z-index:9999; }
+    .overlay.active{ display:flex; align-items:center; justify-content:center; }
+    .overlay video{ width: 96vw; height: 96vh; object-fit: contain; border-radius:0; }
+    .overlayBar{ position:fixed; top:10px; left:10px; right:10px; display:flex; justify-content:space-between; z-index:10000; }
+    .overlayBar button{ background:#111; color:#fff; border-color:#444; }
+    .overlayBar .mono{ color:#fff; opacity:0.85; padding:8px 10px; }
+
+    /* Controls list */
+    .ctrlRow{ margin:10px 0; }
+    .ctrlRow .title{ font-size:12px; color:var(--muted); margin-bottom:4px; display:flex; justify-content:space-between; gap:10px;}
+    .ctrlRow input[type="range"]{ width:100%; }
+  </style>
+</head>
+
+<body>
+  <h2>LooksCAM-Config — Web Validation MVP (UVC)</h2>
+  <p class="small">
+    목표: Chrome(Web)에서 UVC 카메라를 직접 열어 <b>실제 적용 해상도/FPS</b>, <b>Freeze 감지</b>, <b>Matrix 테스트/CSV</b>,
+    <b>UVC Controls(가능한 항목)</b>를 확인합니다.
+  </p>
+
+  <div class="tabs">
+    <button class="tabbtn active" data-tab="tPreview">Preview</button>
+    <button class="tabbtn" data-tab="tControls">Controls</button>
+    <button class="tabbtn" data-tab="tMatrix">Matrix</button>
+    <button class="tabbtn" data-tab="tStats">Stats</button>
+  </div>
+
+  <!-- ============ Preview TAB ============ -->
+  <div id="tPreview" class="tabpanel active">
+    <div class="row">
+      <div class="card">
+        <div class="videoWrap">
+          <video id="v" autoplay playsinline muted></video>
+        </div>
+
+        <div class="videoTools">
+          <button id="btnStart">Start</button>
+          <button id="btnApply" disabled>Apply</button>
+          <button id="btnStop" disabled>Stop</button>
+          <span class="pill" id="pillState">Idle</span>
+          <span class="hint">Tip:</span>
+          <span class="small">처음 실행 시 Chrome에서 Camera 권한을 Allow 하세요.</span>
+        </div>
+
+        <div class="videoTools">
+          <button id="btnSnap" disabled>Snapshot</button>
+          <button id="btnVideoOnly" disabled>Video Only (Full)</button>
+          <span class="small">Snapshot은 PNG로 아래에 표시됩니다.</span>
+        </div>
+
+        <canvas id="c" style="display:none;"></canvas>
+        <div id="snapOut"></div>
+      </div>
+
+      <div class="card" style="min-width:360px;">
+        <h3 style="margin-top:0;">Control</h3>
+
+        <div class="grid">
+          <div>Camera</div>
+          <select id="selCam"></select>
+
+          <div>Preset</div>
+          <select id="selPreset">
+            <option value="1280x720@30">1280x720 @ 30</option>
+            <option value="1920x1080@30" selected>1920x1080 @ 30</option>
+            <option value="1920x1080@25">1920x1080 @ 25</option>
+            <option value="1920x1080@15">1920x1080 @ 15</option>
+            <option value="3840x2160@30">3840x2160 @ 30</option>
+            <option value="3840x2160@15">3840x2160 @ 15</option>
+            <option value="custom">Custom (manual)</option>
+          </select>
+
+          <div>Width</div>
+          <input id="inW" type="number" value="1920" min="160" step="16">
+
+          <div>Height</div>
+          <input id="inH" type="number" value="1080" min="120" step="16">
+
+          <div>FPS</div>
+          <input id="inFps" type="number" value="30" min="1" step="1">
+        </div>
+
+        <hr style="margin:12px 0;">
+
+        <div class="small">
+          <span class="ok">기준:</span> Requested = Actual이면 협상 성공.<br/>
+          Measured FPS는 렌더링/부하 영향이 있어 참고값입니다.
+        </div>
+
+        <hr style="margin:12px 0;">
+        <div class="small">
+          <b>Baseline(논리적 디폴트)</b><br/>
+          - Start 직후 현재 UVC 설정을 자동 저장합니다.<br/>
+          - Restore Baseline으로 “시작 시점 상태”로 복귀합니다. (Factory reset 아님)
+        </div>
+
+        <div class="videoTools">
+          <button id="btnCaptureBaseline" disabled>Capture Baseline</button>
+          <button id="btnRestoreBaseline" disabled>Restore Baseline</button>
+        </div>
+      </div>
+
+      <div class="card" style="min-width:360px; flex:1;">
+        <h3 style="margin-top:0;">Live Stats (quick)</h3>
+        <pre id="statsQuick">Not started.</pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ Controls TAB ============ -->
+  <div id="tControls" class="tabpanel">
+    <div class="row">
+      <div class="card" style="flex:1; min-width:360px;">
+        <h3 style="margin-top:0;">UVC Controls (if supported)</h3>
+        <p class="small">
+          카메라/드라이버가 노출하는 항목만 자동으로 표시됩니다. (없으면 빈칸이 정상)
+        </p>
+        <div id="ctrlArea"></div>
+
+        <div style="margin-top:10px;">
+          <button id="btnRefreshCaps" disabled>Refresh Capabilities</button>
+        </div>
+
+        <pre class="mono" id="capsDump" style="margin-top:10px; max-height: 280px;"></pre>
+      </div>
+
+      <div class="card" style="flex:1; min-width:360px;">
+        <h3 style="margin-top:0;">Notes</h3>
+        <p class="small">
+          - WebRTC(MediaDevices)만으로는 “진짜 Factory Default”를 읽거나 강제할 수 없습니다.<br/>
+          - 따라서 Baseline(시작 시점 캡처) 기반 Restore가 웹에서 가능한 최선입니다.<br/>
+          - Auto mode(exposure/focus/whitebalance)가 켜져 있으면 수동 값이 덮어써질 수 있습니다.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ Matrix TAB ============ -->
+  <div id="tMatrix" class="tabpanel">
+    <div class="row">
+      <div class="card" style="min-width:360px;">
+        <h3 style="margin-top:0;">Matrix Test</h3>
+        <div class="grid">
+          <div>Per case (sec)</div>
+          <input id="inDur" type="number" value="10" min="3" step="1">
+
+          <div>Warm-up (sec)</div>
+          <input id="inWarm" type="number" value="2" min="0" step="1">
+        </div>
+
+        <div style="margin-top:10px;">
+          <button id="btnRunMatrix" disabled>Run Matrix</button>
+          <button id="btnDownloadCsv" disabled>Download CSV</button>
+          <button id="btnClearLog" disabled>Clear Log</button>
+        </div>
+
+        <p class="small">
+          권장: 테스트 중에는 <b>다른 Chrome 창/탭에서 카메라를 열지 마세요</b>.
+        </p>
+      </div>
+
+      <div class="card" style="flex:1; min-width:720px;">
+        <h3 style="margin-top:0;">Matrix Results</h3>
+        <table id="tbl">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Requested</th>
+              <th>Actual</th>
+              <th>Measured FPS (avg/min/max)</th>
+              <th>Freeze count</th>
+              <th>Status</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+        <p class="small mono" id="csvHint"></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ Stats TAB ============ -->
+  <div id="tStats" class="tabpanel">
+    <div class="row">
+      <div class="card" style="flex:1; min-width:360px;">
+        <h3 style="margin-top:0;">Live Stats (full)</h3>
+        <pre id="statsFull">Not started.</pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- Video-only overlay -->
+  <div id="overlay" class="overlay">
+    <div class="overlayBar">
+      <button id="btnExitVideoOnly">Exit</button>
+      <div class="mono" id="overlayInfo">-</div>
+    </div>
+    <video id="v2" autoplay playsinline muted></video>
+  </div>
+
+<script>
+/* ===================== State ===================== */
+let stream = null;
+let track = null;
+let baseline = null;
+
+// FPS + freeze measurement
+let lastT = 0;
+let frameCount = 0;
+let fpsNow = 0;
+let freezeCount = 0;
+let lastFrameTs = 0;
+
+// Matrix log
+const results = [];
+let runningMatrix = false;
+
+// DOM
+const v = document.getElementById('v');
+const v2 = document.getElementById('v2');
+const overlay = document.getElementById('overlay');
+const overlayInfo = document.getElementById('overlayInfo');
+
+const statsQuick = document.getElementById('statsQuick');
+const statsFull = document.getElementById('statsFull');
+
+const selCam = document.getElementById('selCam');
+const selPreset = document.getElementById('selPreset');
+const inW = document.getElementById('inW');
+const inH = document.getElementById('inH');
+const inFps = document.getElementById('inFps');
+
+const pillState = document.getElementById('pillState');
+
+const ctrlArea = document.getElementById('ctrlArea');
+const capsDump = document.getElementById('capsDump');
+
+const tblBody = document.querySelector('#tbl tbody');
+const csvHint = document.getElementById('csvHint');
+
+/* ===================== Utils ===================== */
+function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
+
+function safeJson(obj, maxLen = 12000) {
+  try {
+    const s = JSON.stringify(obj, null, 2);
+    return s.length > maxLen ? (s.slice(0, maxLen) + "\n... (truncated)") : s;
+  } catch {
+    return String(obj);
+  }
+}
+
+function nowIso(){ return new Date().toISOString(); }
+
+function setState(text){
+  pillState.textContent = text;
+}
+
+function enableWhenStreaming(on){
+  document.getElementById('btnApply').disabled = !on;
+  document.getElementById('btnStop').disabled = !on;
+  document.getElementById('btnSnap').disabled = !on;
+  document.getElementById('btnVideoOnly').disabled = !on;
+
+  document.getElementById('btnRefreshCaps').disabled = !on;
+  document.getElementById('btnCaptureBaseline').disabled = !on;
+  document.getElementById('btnRestoreBaseline').disabled = !on;
+
+  document.getElementById('btnRunMatrix').disabled = !on;
+  document.getElementById('btnClearLog').disabled = !on;
+}
+
+/* ===================== Tabs ===================== */
+document.querySelectorAll('.tabbtn').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('.tabbtn').forEach(b=>b.classList.remove('active'));
+    document.querySelectorAll('.tabpanel').forEach(p=>p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(btn.dataset.tab).classList.add('active');
+  });
+});
+
+/* ===================== Device list ===================== */
+async function refreshDeviceList() {
+  const devices = await navigator.mediaDevices.enumerateDevices();
+  const cams = devices.filter(d => d.kind === 'videoinput');
+
+  selCam.innerHTML = '';
+  cams.forEach((cam, idx) => {
+    const opt = document.createElement('option');
+    opt.value = cam.deviceId;
+    opt.textContent = cam.label || `Camera ${idx+1}`;
+    selCam.appendChild(opt);
+  });
+}
+
+async function ensurePermissionThenRefreshLabels() {
+  // After getUserMedia, enumerateDevices will include labels
+  try { await refreshDeviceList(); } catch(e) {}
+}
+
+/* ===================== Stream control ===================== */
+function resetCounters(){
+  lastT = 0;
+  frameCount = 0;
+  fpsNow = 0;
+  freezeCount = 0;
+  lastFrameTs = 0;
+}
+
+function stopStream(){
+  try{
+    if (stream) stream.getTracks().forEach(t => t.stop());
+  }catch(e){}
+  stream = null;
+  track = null;
+  v.srcObject = null;
+  v2.srcObject = null;
+  baseline = null;
+
+  setState('Stopped');
+  statsQuick.textContent = 'Stopped.';
+  statsFull.textContent = 'Stopped.';
+  ctrlArea.innerHTML = '';
+  capsDump.textContent = '';
+  tblBody.innerHTML = '';
+  csvHint.textContent = '';
+  results.length = 0;
+
+  enableWhenStreaming(false);
+  document.getElementById('btnDownloadCsv').disabled = true;
+}
+
+async function startStreamWith(w, h, fps, deviceId){
+  stopStream();
+
+  const constraints = {
+    video: {
+      deviceId: deviceId ? { exact: deviceId } : undefined,
+      width: { ideal: w },
+      height: { ideal: h },
+      frameRate: { ideal: fps }
+    },
+    audio: false
+  };
+
+  setState('Starting...');
+  stream = await navigator.mediaDevices.getUserMedia(constraints);
+  v.srcObject = stream;
+  v2.srcObject = stream;
+  track = stream.getVideoTracks()[0];
+
+  resetCounters();
+
+  enableWhenStreaming(true);
+  document.getElementById('btnStart').disabled = true;
+
+  // Capture baseline automatically at start (logical default)
+  captureBaseline();
+
+  // Start loops
+  if ('requestVideoFrameCallback' in HTMLVideoElement.prototype) {
+    v.requestVideoFrameCallback(onVideoFrame);
+  } else {
+    // fallback (less accurate)
+    setInterval(()=>{ fpsNow = fpsNow; }, 500);
+  }
+  requestAnimationFrame(statsLoop);
+
+  await ensurePermissionThenRefreshLabels();
+  await refreshCapabilitiesUI();
+
+  setState('Streaming');
+}
+
+async function applyConstraints(w, h, fps){
+  if (!track) return;
+  try{
+    await track.applyConstraints({
+      width: { ideal: w },
+      height: { ideal: h },
+      frameRate: { ideal: fps }
+    });
+  }catch(e){
+    console.warn('applyConstraints failed', e);
+  }
+}
+
+/* ===================== Frame callback ===================== */
+function onVideoFrame(now){
+  frameCount++;
+  if (lastT === 0) lastT = now;
+
+  const dt = now - lastT;
+  if (dt >= 1000) {
+    fpsNow = frameCount * 1000 / dt;
+    frameCount = 0;
+    lastT = now;
+  }
+
+  // Freeze heuristic: gap > 250ms
+  if (lastFrameTs !== 0) {
+    const gap = now - lastFrameTs;
+    if (gap > 250) freezeCount++;
+  }
+  lastFrameTs = now;
+
+  v.requestVideoFrameCallback(onVideoFrame);
+}
+
+/* ===================== Live Stats ===================== */
+function buildStatsText(full){
+  if (!track){
+    return 'Not started.';
+  }
+
+  const s = track.getSettings ? track.getSettings() : {};
+  const caps = track.getCapabilities ? track.getCapabilities() : {};
+  const constraints = track.getConstraints ? track.getConstraints() : {};
+
+  const selectedOpt = selCam?.selectedOptions?.[0];
+  const deviceLabel = selectedOpt ? selectedOpt.textContent : '(unknown)';
+  const deviceId = selCam?.value || '(none)';
+
+  const veW = v.videoWidth || 0;
+  const veH = v.videoHeight || 0;
+  const aspect = veH ? (veW/veH).toFixed(4) : 'n/a';
+
+  const reqW = inW.value;
+  const reqH = inH.value;
+  const reqF = inFps.value;
+
+  const lines = [];
+  lines.push(`Time: ${nowIso()}`);
+  lines.push(`Page: ${location.href}`);
+  lines.push(`Visibility: ${document.visibilityState}, Focus: ${document.hasFocus()}, Online: ${navigator.onLine}`);
+  lines.push('');
+  lines.push(`Camera: ${deviceLabel}`);
+  lines.push(`deviceId: ${deviceId}`);
+  lines.push('');
+  lines.push(`Requested (UI): ${reqW}x${reqH} @ ${reqF} fps`);
+  lines.push(`Actual settings: ${s.width}x${s.height} @ ${(s.frameRate ?? 'N/A')} fps`);
+  lines.push(`Video element: ${veW}x${veH} (aspect ${aspect})`);
+  lines.push(`Measured FPS: ${fpsNow.toFixed(1)}`);
+  lines.push(`Freeze count: ${freezeCount}`);
+
+  if (!full) return lines.join('\n');
+
+  // Key summaries
+  const setSummary = {};
+  [
+    'width','height','frameRate','aspectRatio','resizeMode',
+    'brightness','contrast','saturation','sharpness','zoom',
+    'focusDistance','exposureTime','colorTemperature',
+    'exposureMode','focusMode','whiteBalanceMode'
+  ].forEach(k => { if (s[k] !== undefined) setSummary[k] = s[k]; });
+
+  const capSummary = {};
+  [
+    'width','height','frameRate',
+    'brightness','contrast','saturation','sharpness','zoom',
+    'focusDistance','exposureTime','colorTemperature',
+    'exposureMode','focusMode','whiteBalanceMode',
+    'resizeMode','torch'
+  ].forEach(k => { if (caps[k] !== undefined) capSummary[k] = caps[k]; });
+
+  lines.push('');
+  lines.push('--- Settings (key) ---');
+  lines.push(safeJson(setSummary, 6000));
+  lines.push('');
+  lines.push('--- Capabilities (key) ---');
+  lines.push(safeJson(capSummary, 6000));
+  lines.push('');
+  lines.push('--- Raw constraints (getConstraints) ---');
+  lines.push(safeJson(constraints, 6000));
+  lines.push('');
+  lines.push('--- Browser / OS ---');
+  lines.push(`UA: ${navigator.userAgent}`);
+  lines.push(`Platform: ${navigator.platform || '(n/a)'}, Language: ${navigator.language || '(n/a)'}`);
+
+  return lines.join('\n');
+}
+
+function statsLoop(){
+  // Quick + Full always refreshed
+  statsQuick.textContent = buildStatsText(false);
+  statsFull.textContent = buildStatsText(true);
+
+  // Overlay info
+  if (track){
+    const s = track.getSettings();
+    overlayInfo.textContent = `${s.width}x${s.height} @ ${(s.frameRate ?? 'N/A')} fps | Measured ${fpsNow.toFixed(1)} | Freeze ${freezeCount}`;
+  } else {
+    overlayInfo.textContent = '-';
+  }
+
+  requestAnimationFrame(statsLoop);
+}
+
+/* ===================== Baseline (Logical default) ===================== */
+function captureBaseline(){
+  if (!track) return;
+  const s = track.getSettings ? track.getSettings() : {};
+  // Save only values that can be applied via advanced constraints (best effort)
+  const keys = [
+    'brightness','contrast','saturation','sharpness','zoom',
+    'focusDistance','exposureTime','colorTemperature',
+    'exposureMode','focusMode','whiteBalanceMode'
+  ];
+  const b = {};
+  keys.forEach(k=>{ if (s[k] !== undefined) b[k] = s[k]; });
+  baseline = b;
+}
+
+async function restoreBaseline(){
+  if (!track || !baseline) return;
+  try{
+    await track.applyConstraints({ advanced: [ baseline ] });
+  }catch(e){
+    console.warn('restoreBaseline failed', e);
+  }
+}
+
+/* ===================== UVC Controls UI ===================== */
+function makeSliderRow(name, min, max, step, value, onChange){
+  const wrap = document.createElement('div');
+  wrap.className = 'ctrlRow';
+
+  const title = document.createElement('div');
+  title.className = 'title';
+  const left = document.createElement('span');
+  left.textContent = name;
+  const right = document.createElement('span');
+  right.className = 'mono';
+  right.textContent = String(value);
+  title.appendChild(left);
+  title.appendChild(right);
+
+  const input = document.createElement('input');
+  input.type = 'range';
+  input.min = min;
+  input.max = max;
+  input.step = step;
+  input.value = value;
+
+  input.addEventListener('input', async ()=>{
+    right.textContent = input.value;
+    await onChange(Number(input.value));
+  });
+
+  wrap.appendChild(title);
+  wrap.appendChild(input);
+  return wrap;
+}
+
+function makeSelectRow(name, options, value, onChange){
+  const wrap = document.createElement('div');
+  wrap.className = 'ctrlRow';
+
+  const title = document.createElement('div');
+  title.className = 'title';
+  const left = document.createElement('span');
+  left.textContent = name;
+  title.appendChild(left);
+
+  const sel = document.createElement('select');
+  sel.style.width = '100%';
+
+  options.forEach(optVal=>{
+    const o = document.createElement('option');
+    o.value = optVal;
+    o.textContent = optVal;
+    if (optVal === value) o.selected = true;
+    sel.appendChild(o);
+  });
+
+  sel.addEventListener('change', async ()=>{
+    await onChange(sel.value);
+  });
+
+  wrap.appendChild(title);
+  wrap.appendChild(sel);
+  return wrap;
+}
+
+async function refreshCapabilitiesUI(){
+  ctrlArea.innerHTML = '';
+  capsDump.textContent = '';
+  if (!track) return;
+
+  const caps = track.getCapabilities ? track.getCapabilities() : {};
+  const settings = track.getSettings ? track.getSettings() : {};
+  capsDump.textContent = JSON.stringify({ capabilities: caps, settings }, null, 2);
+
+  // Numeric sliders
+  const numericKeys = [
+    'brightness','contrast','saturation','sharpness',
+    'zoom','focusDistance','exposureTime','colorTemperature'
+  ];
+
+  for (const key of numericKeys){
+    const cap = caps[key];
+    if (cap && typeof cap.min === 'number' && typeof cap.max === 'number'){
+      const cur = (settings[key] ?? cap.min);
+      const step = (cap.step ?? 1);
+      ctrlArea.appendChild(
+        makeSliderRow(key, cap.min, cap.max, step, cur, async (val)=>{
+          try{
+            await track.applyConstraints({ advanced: [{ [key]: val }] });
+          }catch(e){
+            console.warn('applyConstraints failed for', key, e);
+          }
+        })
+      );
+    }
+  }
+
+  // Mode selects
+  const modeKeys = ['exposureMode','focusMode','whiteBalanceMode'];
+  for (const key of modeKeys){
+    const cap = caps[key];
+    if (Array.isArray(cap) && cap.length){
+      const cur = (settings[key] ?? cap[0]);
+      ctrlArea.appendChild(
+        makeSelectRow(key, cap, cur, async (val)=>{
+          try{
+            await track.applyConstraints({ advanced: [{ [key]: val }] });
+          }catch(e){
+            console.warn('applyConstraints failed for', key, e);
+          }
+        })
+      );
+    }
+  }
+
+  if (ctrlArea.children.length === 0){
+    const p = document.createElement('p');
+    p.className = 'small';
+    p.textContent = 'No UVC controls exposed by this device/driver (this is normal).';
+    ctrlArea.appendChild(p);
+  }
+}
+
+/* ===================== Matrix + CSV ===================== */
+function clearTable(){
+  tblBody.innerHTML = '';
+  results.length = 0;
+  document.getElementById('btnDownloadCsv').disabled = true;
+  csvHint.textContent = '';
+}
+
+function addRowToTable(r){
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td>${r.idx}</td>
+    <td class="mono">${r.req}</td>
+    <td class="mono">${r.act}</td>
+    <td class="mono">${r.fpsAvg.toFixed(1)} / ${r.fpsMin.toFixed(1)} / ${r.fpsMax.toFixed(1)}</td>
+    <td class="mono">${r.freeze}</td>
+    <td>${r.status}</td>
+    <td class="small">${r.notes || ''}</td>
+  `;
+  tblBody.appendChild(tr);
+}
+
+function toCsv(){
+  const header = ['idx','requested','actual','fps_avg','fps_min','fps_max','freeze_count','status','notes'];
+  const lines = [header.join(',')];
+  for (const r of results){
+    const row = [
+      r.idx,
+      `"${r.req}"`,
+      `"${r.act}"`,
+      r.fpsAvg.toFixed(2),
+      r.fpsMin.toFixed(2),
+      r.fpsMax.toFixed(2),
+      r.freeze,
+      r.status,
+      `"${(r.notes||'').replaceAll('"','""')}"`
+    ];
+    lines.push(row.join(','));
+  }
+  return lines.join('\n');
+}
+
+function downloadText(filename, text){
+  const blob = new Blob([text], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function runOneCase(idx, w, h, fps, durSec, warmSec){
+  const deviceId = selCam.value || undefined;
+
+  await startStreamWith(w, h, fps, deviceId);
+  if (warmSec > 0) await sleep(warmSec * 1000);
+
+  let samples = [];
+  const start = performance.now();
+  const freezeStart = freezeCount;
+
+  while ((performance.now() - start) < durSec * 1000){
+    samples.push(fpsNow);
+    await sleep(250);
+  }
+
+  const s = track.getSettings();
+  const actual = `${s.width}x${s.height} @ ${(s.frameRate ?? 'N/A')}fps`;
+  const requested = `${w}x${h} @ ${fps}fps`;
+
+  const valid = samples.filter(x => Number.isFinite(x));
+  const fpsAvg = valid.length ? (valid.reduce((a,b)=>a+b,0)/valid.length) : 0;
+  const fpsMin = valid.length ? Math.min(...valid) : 0;
+  const fpsMax = valid.length ? Math.max(...valid) : 0;
+
+  const freezeDelta = Math.max(0, freezeCount - freezeStart);
+
+  let status = 'PASS';
+  let notes = '';
+
+  if (!s.width || !s.height){
+    status = 'FAIL';
+    notes = 'No settings reported';
+  }else{
+    const reqMatch = (s.width === w && s.height === h);
+    if (!reqMatch){
+      status = 'WARN';
+      notes += 'Actual resolution differs. ';
+    }
+    if (freezeDelta > 0){
+      status = (status === 'PASS') ? 'WARN' : status;
+      notes += `Freeze detected(${freezeDelta}). `;
+    }
+    if (fpsAvg > 0 && fpsAvg < Math.max(5, fps * 0.6)){
+      status = (status === 'PASS') ? 'WARN' : status;
+      notes += 'Measured FPS low. ';
+    }
+  }
+
+  const row = { idx, req: requested, act: actual, fpsAvg, fpsMin, fpsMax, freeze: freezeDelta, status, notes: notes.trim() };
+  results.push(row);
+  addRowToTable(row);
+
+  // Return to streaming state without stopping entirely
+}
+
+async function runMatrix(){
+  if (!track || runningMatrix) return;
+  runningMatrix = true;
+
+  document.getElementById('btnRunMatrix').disabled = true;
+  document.getElementById('btnDownloadCsv').disabled = true;
+
+  const durSec = Number(document.getElementById('inDur').value);
+  const warmSec = Number(document.getElementById('inWarm').value);
+
+  // Default matrix (edit later)
+  const matrix = [
+    { w:1280, h:720,  fps:30 },
+    { w:1920, h:1080, fps:30 },
+    { w:1920, h:1080, fps:25 },
+    { w:1920, h:1080, fps:15 },
+    { w:3840, h:2160, fps:30 },
+    { w:3840, h:2160, fps:15 },
+  ];
+
+  clearTable();
+
+  let idx = 1;
+  try{
+    for (const t of matrix){
+      inW.value = t.w;
+      inH.value = t.h;
+      inFps.value = t.fps;
+      selPreset.value = `${t.w}x${t.h}@${t.fps}`;
+
+      await runOneCase(idx++, t.w, t.h, t.fps, durSec, warmSec);
+    }
+  }catch(e){
+    console.error(e);
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td colspan="7" class="warn">Matrix aborted: ${String(e.message || e)}</td>`;
+    tblBody.appendChild(tr);
+  }finally{
+    runningMatrix = false;
+    document.getElementById('btnRunMatrix').disabled = false;
+    document.getElementById('btnDownloadCsv').disabled = (results.length === 0);
+    csvHint.textContent = results.length ? 'CSV 다운로드 가능 (Download CSV 버튼)' : '';
+  }
+}
+
+/* ===================== UI hooks ===================== */
+selPreset.addEventListener('change', ()=>{
+  const v = selPreset.value;
+  if (v === 'custom') return;
+  const [wh, fpsStr] = v.split('@');
+  const [w, h] = wh.split('x');
+  inW.value = Number(w);
+  inH.value = Number(h);
+  inFps.value = Number(fpsStr);
+});
+
+document.getElementById('btnStart').addEventListener('click', async ()=>{
+  await refreshDeviceList();
+  const w = Number(inW.value);
+  const h = Number(inH.value);
+  const fps = Number(inFps.value);
+  const deviceId = selCam.value || undefined;
+  try{
+    await startStreamWith(w, h, fps, deviceId);
+  }catch(e){
+    console.error(e);
+    setState('Start failed');
+    statsQuick.textContent = `Start failed: ${String(e.message || e)}`;
+    statsFull.textContent = statsQuick.textContent;
+    document.getElementById('btnStart').disabled = false;
+    enableWhenStreaming(false);
+  }
+});
+
+document.getElementById('btnApply').addEventListener('click', async ()=>{
+  const w = Number(inW.value);
+  const h = Number(inH.value);
+  const fps = Number(inFps.value);
+  await applyConstraints(w, h, fps);
+});
+
+document.getElementById('btnStop').addEventListener('click', ()=>{
+  document.getElementById('btnStart').disabled = false;
+  stopStream();
+});
+
+document.getElementById('btnSnap').addEventListener('click', ()=>{
+  if (!v.videoWidth || !v.videoHeight) return;
+  const c = document.getElementById('c');
+  c.width = v.videoWidth;
+  c.height = v.videoHeight;
+  c.getContext('2d').drawImage(v, 0, 0);
+  const img = new Image();
+  img.src = c.toDataURL('image/png');
+  img.style.maxWidth = '360px';
+  img.style.border = '1px solid #ddd';
+  img.style.borderRadius = '10px';
+  img.style.marginTop = '8px';
+  const out = document.getElementById('snapOut');
+  out.innerHTML = '';
+  out.appendChild(img);
+});
+
+document.getElementById('btnRefreshCaps').addEventListener('click', async ()=>{
+  await refreshCapabilitiesUI();
+});
+
+document.getElementById('btnCaptureBaseline').addEventListener('click', ()=>{
+  captureBaseline();
+});
+
+document.getElementById('btnRestoreBaseline').addEventListener('click', async ()=>{
+  await restoreBaseline();
+});
+
+document.getElementById('btnRunMatrix').addEventListener('click', async ()=>{
+  await runMatrix();
+});
+
+document.getElementById('btnClearLog').addEventListener('click', ()=>{
+  clearTable();
+});
+
+document.getElementById('btnDownloadCsv').addEventListener('click', ()=>{
+  const csv = toCsv();
+  const ts = new Date().toISOString().replaceAll(':','-').split('.')[0];
+  downloadText(`LooksCAM_Config_Matrix_${ts}.csv`, csv);
+});
+
+document.getElementById('btnVideoOnly').addEventListener('click', ()=>{
+  overlay.classList.add('active');
+});
+
+document.getElementById('btnExitVideoOnly').addEventListener('click', ()=>{
+  overlay.classList.remove('active');
+});
+
+// ESC to exit overlay
+document.addEventListener('keydown', (e)=>{
+  if (e.key === 'Escape'){
+    overlay.classList.remove('active');
+  }
+});
+
+/* ===================== Init ===================== */
+(async function init(){
+  try{
+    await refreshDeviceList();
+  }catch(e){}
+  enableWhenStreaming(false);
+  setState('Idle');
+})();
+</script>
+</body>
+</html>
