@@ -18,13 +18,23 @@
         <div class="card-header">
           <h2>Live Preview</h2>
         </div>
+
         <div class="preview-box">
           <div class="preview-placeholder">
             Preview is currently monitored in VLC
           </div>
         </div>
+
         <div class="preview-note">
-          Use VLC for RTSP preview now. Web preview can be added later.
+          RTSP preview is currently checked in VLC. Web preview can be added later.
+        </div>
+
+        <div class="control-group preview-actions">
+          <div class="group-title">VLC Test Flow</div>
+          <div class="button-row">
+            <button onclick="copyRtspUrl()">Copy RTSP URL</button>
+            <button onclick="showVlcGuide()">How to open in VLC</button>
+          </div>
         </div>
       </section>
 
@@ -42,6 +52,9 @@
 
           <div class="label">Port</div>
           <div class="value" id="portNumber">554</div>
+
+          <div class="label">User ID</div>
+          <div class="value" id="userIdText">ID</div>
 
           <div class="label">Current Stream</div>
           <div class="value" id="currentStream">stream1</div>
@@ -76,23 +89,15 @@
 
           <div class="button-row">
             <button onclick="applyDeviceInputs()">Apply</button>
+            <button onclick="resetDeviceInputs()">Reset</button>
           </div>
         </div>
 
         <div class="control-group">
           <div class="group-title">Stream Select</div>
           <div class="button-row">
-            <button id="btnStream1" onclick="selectStream('stream1')">Stream 1</button>
-            <button id="btnStream2" onclick="selectStream('stream2')">Stream 2</button>
-          </div>
-        </div>
-
-        <div class="control-group">
-          <div class="group-title">Command Placeholder</div>
-          <div class="button-row">
-            <button onclick="setStatus('Record command requested')">Record</button>
-            <button onclick="setStatus('Reboot command requested')">Reboot</button>
-            <button onclick="setStatus('EIS toggle requested')">EIS On/Off</button>
+            <button onclick="selectStream('stream1')">Stream 1</button>
+            <button onclick="selectStream('stream2')">Stream 2</button>
           </div>
         </div>
 
@@ -101,13 +106,33 @@
           <div class="rtsp-box" id="rtspUrl">
             rtsp://ID:PW@192.168.1.16:554/stream1
           </div>
+          <div class="button-row top-gap">
+            <button onclick="copyRtspUrl()">Copy RTSP</button>
+          </div>
+        </div>
+
+        <div class="control-group">
+          <div class="group-title">Command Placeholder</div>
+          <div class="button-row">
+            <button onclick="sendApiCommand('record')">Record</button>
+            <button onclick="sendApiCommand('reboot')">Reboot</button>
+            <button onclick="sendApiCommand('eisToggle')">EIS On/Off</button>
+          </div>
+        </div>
+
+        <div class="control-group">
+          <div class="group-title">API Structure Preview</div>
+          <div class="api-box">
+            <div><strong>Base URL:</strong> <span id="apiBaseUrl">http://192.168.1.16/api</span></div>
+            <div><strong>Record:</strong> POST /record/start</div>
+            <div><strong>Reboot:</strong> POST /system/reboot</div>
+            <div><strong>EIS:</strong> POST /video/eis/toggle</div>
+          </div>
         </div>
 
         <div class="control-group">
           <div class="group-title">Status Message</div>
-          <div class="status-box" id="statusText">
-            Ready
-          </div>
+          <div class="status-box" id="statusText">Ready</div>
         </div>
       </section>
     </main>
