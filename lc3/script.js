@@ -24,6 +24,11 @@ function updateStreamInfo() {
   }
 }
 
+function updateDeviceInfo() {
+  document.getElementById("ipAddress").textContent = deviceState.ip;
+  document.getElementById("portNumber").textContent = deviceState.port;
+}
+
 function setStatus(message) {
   document.getElementById("statusText").textContent = message;
 }
@@ -35,9 +40,29 @@ function selectStream(streamName) {
   setStatus(`${streamName} selected`);
 }
 
+function applyDeviceInputs() {
+  const inputIp = document.getElementById("inputIp").value.trim();
+  const inputPort = document.getElementById("inputPort").value.trim();
+  const inputId = document.getElementById("inputId").value.trim();
+  const inputPw = document.getElementById("inputPw").value.trim();
+
+  deviceState.ip = inputIp || deviceState.ip;
+  deviceState.port = inputPort || deviceState.port;
+  deviceState.username = inputId || deviceState.username;
+  deviceState.password = inputPw || deviceState.password;
+
+  updateDeviceInfo();
+  updateRtspUrl();
+  setStatus("Device input applied");
+}
+
 function initializeUi() {
-  document.getElementById("ipAddress").textContent = deviceState.ip;
-  document.getElementById("portNumber").textContent = deviceState.port;
+  document.getElementById("inputIp").value = deviceState.ip;
+  document.getElementById("inputPort").value = deviceState.port;
+  document.getElementById("inputId").value = deviceState.username;
+  document.getElementById("inputPw").value = deviceState.password;
+
+  updateDeviceInfo();
   updateStreamInfo();
   updateRtspUrl();
   setStatus("Ready");

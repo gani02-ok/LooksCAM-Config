@@ -60,6 +60,26 @@
         </div>
 
         <div class="control-group">
+          <div class="group-title">Device Input</div>
+
+          <label class="input-label" for="inputIp">IP Address</label>
+          <input id="inputIp" type="text" value="192.168.1.16" placeholder="192.168.1.16" />
+
+          <label class="input-label" for="inputPort">Port</label>
+          <input id="inputPort" type="text" value="554" placeholder="554" />
+
+          <label class="input-label" for="inputId">User ID</label>
+          <input id="inputId" type="text" value="ID" placeholder="Enter ID" />
+
+          <label class="input-label" for="inputPw">Password</label>
+          <input id="inputPw" type="password" value="PW" placeholder="Enter Password" />
+
+          <div class="button-row">
+            <button onclick="applyDeviceInputs()">Apply</button>
+          </div>
+        </div>
+
+        <div class="control-group">
           <div class="group-title">Stream Select</div>
           <div class="button-row">
             <button id="btnStream1" onclick="selectStream('stream1')">Stream 1</button>
