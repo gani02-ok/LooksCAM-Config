@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LooksCAM-Config LC3</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <h1>LooksCAM-Config</h1>
+      <div class="subtitle">LC3 Wi-Fi Camera Test UI</div>
+    </header>
+
+    <main class="layout">
+      <section class="card preview-card">
+        <div class="card-header">
+          <h2>Live Preview</h2>
+        </div>
+        <div class="preview-box">
+          <div class="preview-placeholder">
+            Preview is currently monitored in VLC
+          </div>
+        </div>
+        <div class="preview-note">
+          Use VLC for RTSP preview now. Web preview can be added later.
+        </div>
+      </section>
+
+      <section class="card info-card">
+        <div class="card-header">
+          <h2>Device Info</h2>
+        </div>
+
+        <div class="info-grid">
+          <div class="label">Device Name</div>
+          <div class="value" id="deviceName">LC3 Test Camera</div>
+
+          <div class="label">IP Address</div>
+          <div class="value" id="ipAddress">192.168.1.16</div>
+
+          <div class="label">Port</div>
+          <div class="value" id="portNumber">554</div>
+
+          <div class="label">Current Stream</div>
+          <div class="value" id="currentStream">stream1</div>
+
+          <div class="label">Resolution</div>
+          <div class="value" id="resolutionText">Main stream</div>
+
+          <div class="label">Connection</div>
+          <div class="value status-connected" id="connectionStatus">Connected</div>
+        </div>
+      </section>
+
+      <section class="card control-card">
+        <div class="card-header">
+          <h2>Control Panel</h2>
+        </div>
+
+        <div class="control-group">
+          <div class="group-title">Stream Select</div>
+          <div class="button-row">
+            <button id="btnStream1" onclick="selectStream('stream1')">Stream 1</button>
+            <button id="btnStream2" onclick="selectStream('stream2')">Stream 2</button>
+          </div>
+        </div>
+
+        <div class="control-group">
+          <div class="group-title">Command Placeholder</div>
+          <div class="button-row">
+            <button onclick="setStatus('Record command requested')">Record</button>
+            <button onclick="setStatus('Reboot command requested')">Reboot</button>
+            <button onclick="setStatus('EIS toggle requested')">EIS On/Off</button>
+          </div>
+        </div>
+
+        <div class="control-group">
+          <div class="group-title">RTSP URL</div>
+          <div class="rtsp-box" id="rtspUrl">
+            rtsp://ID:PW@192.168.1.16:554/stream1
+          </div>
+        </div>
+
+        <div class="control-group">
+          <div class="group-title">Status Message</div>
+          <div class="status-box" id="statusText">
+            Ready
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
